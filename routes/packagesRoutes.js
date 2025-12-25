@@ -95,6 +95,86 @@ router.get('/color-options', (req, res) => {
     });
 });
 
+// POST initialize default packages (public - for initial setup)
+router.post('/initialize', async (req, res) => {
+    try {
+        // Check if packages already exist
+        const { data: existingPackages, error: checkError } = await supabase
+            .from('packages')
+            .select('id')
+            .limit(1);
+
+        if (checkError) throw checkError;
+
+        if (existingPackages && existingPackages.length > 0) {
+            return res.json({
+                success: true,
+                message: 'Packages already exist',
+                initialized: false
+            });
+        }
+
+        // Default packages to initialize
+        const defaultPackages = [
+            { name: '30 Minutes', amount: 1, duration: '30m', duration_minutes: 30, speed_limit: '2M', description: 'Quick browsing session', status: 'active', color_gradient: 'from-yellow-500 to-orange-600', duration_label: 'Quick Access', display_order: 1 },
+            { name: '1 Hour', amount: 10, duration: '1h', duration_minutes: 60, speed_limit: '2M', description: 'One hour internet access', status: 'active', color_gradient: 'from-yellow-500 to-orange-600', duration_label: 'Quick Access', display_order: 2 },
+            { name: '3 Hours', amount: 15, duration: '3h', duration_minutes: 180, speed_limit: '3M', description: 'Three hours browsing', status: 'active', color_gradient: 'from-green-500 to-emerald-600', duration_label: 'Short Session', display_order: 3 },
+            { name: '6 Hours', amount: 20, duration: '6h', duration_minutes: 360, speed_limit: '4M', description: 'Half day package', status: 'active', color_gradient: 'from-blue-500 to-cyan-600', duration_label: 'Half Day', display_order: 4 },
+            { name: '12 Hours', amount: 25, duration: '12h', duration_minutes: 720, speed_limit: '5M', description: 'Extended access', status: 'active', color_gradient: 'from-pink-500 to-orange-600', duration_label: 'Extended', display_order: 5 },
+            { name: '24 Hours', amount: 30, duration: '24h', duration_minutes: 1440, speed_limit: '5M', description: 'Full day unlimited', status: 'active', color_gradient: 'from-purple-500 to-indigo-600', duration_label: 'Full Day', display_order: 6 },
+            { name: '2 Days', amount: 50, duration: '2d', duration_minutes: 2880, speed_limit: '6M', description: 'Weekend package', status: 'active', color_gradient: 'from-gray-700 to-gray-900', duration_label: 'Weekend', display_order: 7 },
+            { name: '3 Days', amount: 80, duration: '3d', duration_minutes: 4320, speed_limit: '6M', description: 'Extended weekend', status: 'active', color_gradient: 'from-purple-500 to-pink-600', duration_label: 'Extended', display_order: 8 },
+            { name: '1 Week', amount: 200, duration: '7d', duration_minutes: 10080, speed_limit: '6M', description: 'Weekly package', status: 'active', color_gradient: 'from-yellow-500 to-green-600', duration_label: 'Weekly', display_order: 9 },
+            { name: '2 Weeks', amount: 300, duration: '14d', duration_minutes: 20160, speed_limit: '10M', description: 'Bi-weekly access', status: 'active', color_gradient: 'from-red-500 to-purple-600', duration_label: 'Extended', display_order: 10 },
+            { name: '1 Month', amount: 500, duration: '30d', duration_minutes: 43200, speed_limit: '10M', description: 'Monthly unlimited', status: 'active', color_gradient: 'from-teal-500 to-cyan-600', duration_label: 'Monthly', display_order: 11 }
+        ];
+
+        const { data: insertedPackages, error: insertError } = await supabase
+            .from('packages')
+            .insert(defaultPackages)
+            .select();
+
+        if (insertError) throw insertError;
+
+        res.json({
+            success: true,
+            message: 'Default packages initialized successfully',
+            initialized: true,
+            packages: insertedPackages
+        });
+    } catch (error) {
+        console.error('Error initializing packages:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to initialize packages',
+            error: error.message
+        });
+    }
+});
+
+// GET public stats (no auth needed)
+router.get('/public-stats', async (req, res) => {
+    try {
+        const { data: packages, error } = await supabase
+            .from('packages')
+            .select('status');
+
+        if (error) throw error;
+
+        const total = packages?.length || 0;
+        const active = packages?.filter(p => p.status === 'active').length || 0;
+
+        res.json({
+            success: true,
+            total,
+            active
+        });
+    } catch (error) {
+        console.error('Error fetching public stats:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch stats' });
+    }
+});
+
 // ============================================
 // PROTECTED ROUTES (Authentication Required)
 // ============================================
