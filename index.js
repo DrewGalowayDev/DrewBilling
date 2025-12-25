@@ -29,9 +29,34 @@ const notificationsRoutes = require("./routes/notificationsRoutes");
 
 const app = express();
 
-// Configure CORS for localhost development
+// Configure CORS for both development and production
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://drew-billing.vercel.app',
+    'https://drewbilling.vercel.app',
+    /\.vercel\.app$/  // Allow all Vercel preview deployments
+];
+
 app.use(cors({
-    origin: 'http://localhost:5173',
+    origin: function(origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        
+        // Check if origin is in allowed list or matches pattern
+        const isAllowed = allowedOrigins.some(allowed => {
+            if (allowed instanceof RegExp) {
+                return allowed.test(origin);
+            }
+            return allowed === origin;
+        });
+        
+        if (isAllowed) {
+            callback(null, true);
+        } else {
+            callback(null, true); // Allow all for now, restrict later
+        }
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -78,6 +103,29 @@ app.get("/api/test-cors", (req, res) => {
     res.json({ message: "CORS is working!" });
 });
 
+// Root route - API info
+app.get('/', (req, res) => {
+    res.json({
+        name: 'DrewBilling WiFi API',
+        version: '1.0.0',
+        status: 'running',
+        endpoints: {
+            health: '/api/health',
+            auth: '/api/v2/auth',
+            dashboard: '/api/v2/dashboard',
+            payments: '/api/admin/payments',
+            devices: '/api/admin/devices',
+            customers: '/api/admin/customers',
+            packages: '/api/admin/packages',
+            vouchers: '/api/admin/vouchers',
+            sessions: '/api/admin/sessions',
+            analytics: '/api/admin/analytics',
+            settings: '/api/admin/settings'
+        },
+        documentation: 'See /api/health for status'
+    });
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
     console.error(err.stack);
@@ -87,11 +135,16 @@ app.use((err, req, res, next) => {
     });
 });
 
-// Start Server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📁 Environment: development (localhost)`);
-    console.log(`🌐 CORS origin: http://localhost:5173`);
-    console.log(`🔗 Backend API: http://localhost:${PORT}`);
-});
+// Export for Vercel serverless
+module.exports = app;
+
+// Start Server (only in non-Vercel environment)
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => {
+        console.log(`🚀 Server running on port ${PORT}`);
+        console.log(`📁 Environment: ${process.env.NODE_ENV || 'development'}`);
+        console.log(`🌐 CORS origin: http://localhost:5173`);
+        console.log(`🔗 Backend API: http://localhost:${PORT}`);
+    });
+}

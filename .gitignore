@@ -27,3 +27,6 @@ build/
 .DS_Store
 Thumbs.db
 .vercel
+
+.vercel
+.env*.local
