@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WiFi Payment</title>
+  <meta charset="UTF-8" />
+  <style>
+    
+    :root {
+      --primary-color: #4CAF50;
+      --secondary-color: #45a049;
+      --background-color: #f8f9fa;
+      --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+  
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      min-height: 100vh;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+  
+    .box {
+      max-width: 400px;
+      width: 100%;
+      background: white;
+      padding: 30px;
+      border-radius: 15px;
+      box-shadow: var(--box-shadow);
+      transition: transform 0.3s ease;
+    }
+  
+    .box:hover {
+      transform: translateY(-5px);
+    }
+  
+    h2 {
+      color: #333;
+      margin-bottom: 25px;
+      font-size: 24px;
+      font-weight: 600;
+    }
+  
+    input, select {
+      width: 100%;
+      padding: 12px;
+      margin: 8px 0;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      box-sizing: border-box;
+      font-size: 16px;
+      transition: border-color 0.3s ease;
+    }
+  
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--primary-color);
+    }
+  
+    button {
+      width: 100%;
+      padding: 14px;
+      background-color: var(--primary-color);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      margin-top: 15px;
+      transition: background-color 0.3s ease;
+    }
+  
+    button:hover {
+      background-color: var(--secondary-color);
+    }
+  
+    #status {
+      margin-top: 20px;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: all 0.3s ease;
+    }
+  
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+  
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+  
+    @media (max-width: 480px) {
+      .box {
+        padding: 20px;
+      }
+      
+      h2 {
+        font-size: 20px;
+      }
+      
+      input, select, button {
+        font-size: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>Pay to Access WiFi</h2>
+
+    <form id="paymentForm">
+      <input type="tel" id="phone" placeholder="Enter Safaricom number (254XXXXXXXXX)" required />
+      
+      <select id="duration" required>
+        <option value="">Select Duration</option>
+        <option value="10">1 Hour (10 KES)</option>
+        <option value="15">3 Hours (15 KES)</option>
+        <option value="20">6 Hours (20 KES)</option>
+        <option value="25">12 Hours (25 KES)</option>
+        <option value="30">24 Hours (30 KES)</option>
+        <option value="50">2 Days (50 KES)</option>
+        <option value="80">3 Days (80 KES)</option>
+        <option value="200">1 Week (200 KES)</option>
+        <option value="300">2 Weeks (300 KES)</option>
+        <option value="500">1 Month (500 KES)</option>
+      </select>
+
+      <input type="text" id="mac" placeholder="Device MAC (auto-filled if possible)" required />
+
+      <button type="submit">Pay with M-Pesa</button>
+    </form>
+
+    <p id="status"></p>
+  </div>
+
+  <script>
+    // Add this to your existing script to modify the status message display 
+function updateStatus(message, type = 'normal') {
+  const statusElement = document.getElementById("status");
+  statusElement.innerText = message;
+  statusElement.className = type === 'success' ? 'success' : type === 'error' ? 'error' : '';
+}
+    document.getElementById("mac").value = window.location.search.split("mac=")[1]?.split("&")[0] || "";
+
+    document.getElementById("paymentForm").addEventListener("submit", async function (e) {
+      e.preventDefault();
+
+      const phone = document.getElementById("phone").value;
+      const amount = document.getElementById("duration").value;
+      const mac = document.getElementById("mac").value;
+
+      document.getElementById("status").innerText = "Processing payment...";
+
+      try {
+        const res = await fetch("https://yourdomain.com/api/pay", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone, amount, mac })
+        });
+
+        const data = await res.json();
+
+      // Update your existing error handling:
+if (data.success) {
+  updateStatus("STK sent. Complete payment on your phone.", "success");
+} else {
+  updateStatus("Payment failed: " + data.message, "error");
+}
+      } catch (err) {
+        document.getElementById("status").innerText = "Error: Could not reach server.";
+      }
+    });
+  </script>
+</body>
+</html>

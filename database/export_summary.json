@@ -1,0 +1,71 @@
+{
+  "database": "wifi_billing",
+  "exportDate": "2025-11-21T10:22:11.964Z",
+  "tables": 12,
+  "views": 6,
+  "procedures": 8,
+  "functions": 0,
+  "triggers": 0,
+  "tableDetails": [
+    {
+      "name": "admins",
+      "rows": 1,
+      "columns": 10
+    },
+    {
+      "name": "audit_logs",
+      "rows": 0,
+      "columns": 9
+    },
+    {
+      "name": "customers",
+      "rows": 0,
+      "columns": 11
+    },
+    {
+      "name": "devices",
+      "rows": 0,
+      "columns": 7
+    },
+    {
+      "name": "network_stats",
+      "rows": 0,
+      "columns": 9
+    },
+    {
+      "name": "notifications",
+      "rows": 0,
+      "columns": 11
+    },
+    {
+      "name": "packages",
+      "rows": 22,
+      "columns": 11
+    },
+    {
+      "name": "payments",
+      "rows": 21,
+      "columns": 12
+    },
+    {
+      "name": "refunds",
+      "rows": 0,
+      "columns": 9
+    },
+    {
+      "name": "sessions",
+      "rows": 0,
+      "columns": 12
+    },
+    {
+      "name": "system_settings",
+      "rows": 12,
+      "columns": 9
+    },
+    {
+      "name": "vouchers",
+      "rows": 0,
+      "columns": 10
+    }
+  ]
+}

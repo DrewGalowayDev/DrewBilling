@@ -1,0 +1,42 @@
+services:
+  # Backend API
+  - type: web
+    name: qonnect-wifi-api
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_HOST
+        fromDatabase:
+          name: qonnect-db
+          property: host
+      - key: DB_USER
+        fromDatabase:
+          name: qonnect-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: qonnect-db
+          property: password
+      - key: DB_NAME
+        value: wifi_billing
+      - key: PORT
+        value: 5000
+      # Add your M-Pesa credentials from Render dashboard
+      - key: MPESA_CONSUMER_KEY
+        sync: false
+      - key: MPESA_CONSUMER_SECRET
+        sync: false
+      - key: MPESA_SHORTCODE
+        sync: false
+      - key: MPESA_PASSKEY
+        sync: false
+      - key: MPESA_CALLBACK_URL
+        sync: false
+
+databases:
+  - name: qonnect-db
+    databaseName: wifi_billing
+    user: wifi_admin

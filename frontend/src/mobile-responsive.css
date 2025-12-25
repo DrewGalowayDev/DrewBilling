@@ -1,0 +1,191 @@
+/* Mobile Responsive Utilities */
+
+/* Hide scrollbar for mobile horizontal scroll but keep functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Better touch targets for mobile */
+@media (max-width: 768px) {
+  button,
+  a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Smooth transitions for mobile interactions */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Responsive table improvements */
+@media (max-width: 768px) {
+  table {
+    font-size: 0.875rem;
+  }
+  
+  table th,
+  table td {
+    padding: 0.75rem 0.5rem !important;
+  }
+  
+  /* Make table cells wrap better on mobile */
+  table td {
+    white-space: normal;
+    word-break: break-word;
+  }
+}
+
+/* Modal improvements for mobile */
+@media (max-width: 768px) {
+  .modal-content {
+    max-height: 85vh;
+    margin: 1rem;
+  }
+}
+
+/* Stat card improvements */
+@media (max-width: 768px) {
+  .stat-card {
+    min-height: 100px;
+  }
+  
+  .stat-value {
+    font-size: clamp(1rem, 4vw, 1.5rem);
+  }
+  
+  .stat-label {
+    font-size: clamp(0.75rem, 3vw, 0.875rem);
+  }
+}
+
+/* Better spacing for mobile */
+@media (max-width: 640px) {
+  .mobile-tight-spacing > * + * {
+    margin-top: 0.75rem;
+  }
+}
+
+/* Responsive charts */
+@media (max-width: 768px) {
+  .recharts-wrapper {
+    font-size: 0.75rem;
+  }
+}
+
+/* Better form inputs on mobile */
+@media (max-width: 768px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px; /* Prevents iOS zoom on focus */
+  }
+}
+
+/* Pagination improvements for mobile */
+@media (max-width: 640px) {
+  .pagination-button {
+    padding: 0.5rem;
+    font-size: 0.875rem;
+  }
+}
+
+/* Badge responsive sizing */
+@media (max-width: 768px) {
+  .badge {
+    font-size: 0.625rem;
+    padding: 0.125rem 0.5rem;
+  }
+}
+
+/* Card hover effects - disable on mobile for better performance */
+@media (hover: none) {
+  .card:hover {
+    box-shadow: inherit;
+    transform: none;
+  }
+}
+
+/* Better dropdown menus on mobile */
+@media (max-width: 768px) {
+  .dropdown-menu {
+    position: fixed;
+    left: 1rem;
+    right: 1rem;
+    width: auto;
+  }
+}
+
+/* Loading skeleton improvements */
+@media (max-width: 768px) {
+  .skeleton {
+    min-height: 80px;
+  }
+}
+
+/* Safe area for iPhone notches */
+@supports (padding: max(0px)) {
+  .safe-area-top {
+    padding-top: max(1rem, env(safe-area-inset-top));
+  }
+  
+  .safe-area-bottom {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* Prevent text selection on buttons and interactive elements */
+button,
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Smooth scroll behavior */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Better focus states for accessibility */
+*:focus-visible {
+  outline: 2px solid #3B82F6;
+  outline-offset: 2px;
+}
+
+/* Hide desktop-only elements on mobile */
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+}
+
+/* Show mobile-only elements */
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-only {
+    display: block;
+  }
+}
+
+/* Responsive grid auto-fit */
+.responsive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .responsive-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+}

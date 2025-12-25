@@ -1,0 +1,17 @@
+{
+  "conversionDate": "2025-11-21T10:23:29.042Z",
+  "sourceFile": "mysql_complete_export.sql",
+  "targetFile": "postgresql_export.sql",
+  "conversions": [
+    "AUTO_INCREMENT → SERIAL/BIGSERIAL",
+    "Backticks → Double quotes",
+    "INT(n) → INTEGER",
+    "TINYINT(1) → BOOLEAN",
+    "DATETIME → TIMESTAMP",
+    "ENUM → CHECK constraints",
+    "KEY → CREATE INDEX",
+    "MySQL procedures → PostgreSQL functions",
+    "Removed MySQL-specific attributes",
+    "Added PostgreSQL settings"
+  ]
+}
