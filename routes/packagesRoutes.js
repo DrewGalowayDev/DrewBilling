@@ -3,6 +3,7 @@ const router = express.Router();
 const { supabase } = require('../config/db');
 const { authMiddleware, roleMiddleware } = require('../middleware/advancedAuth');
 
+// Packages Routes - Updated Dec 26, 2025
 // Color gradient options for the admin UI
 const COLOR_GRADIENTS = [
     { value: 'from-yellow-500 to-orange-600', label: 'Yellow → Orange', preview: '#eab308 → #ea580c' },
