@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { CheckCircle, Clock, AlertTriangle, WifiIcon } from "lucide-react";
+import { CheckCircle, Clock, AlertTriangle, WifiIcon, Loader2 } from "lucide-react";
 import { API_URL } from "../config/config";
 import Skeleton from "../components/ui/Skeleton";
 import { Link } from "react-router-dom";
@@ -16,27 +16,48 @@ const UserPortal = () => {
   const [status, setStatus] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [macAddress, setMacAddress] = useState("UNKNOWN_MAC");
+  const [packages, setPackages] = useState([]);
+  const [packagesLoading, setPackagesLoading] = useState(true);
 
-  const packages = [
-   
+  // Fallback packages (used if API fails)
+  const fallbackPackages = [
     { label: "30mins", value: 1, price: "Ksh 1", duration: "Quick Access", speed: "2 Mbps", color: "from-yellow-500 to-orange-600" },
     { label: "1 Hour", value: 10, price: "Ksh 10", duration: "Quick Access", speed: "2 Mbps", color: "from-yellow-500 to-orange-600" },
     { label: "3 Hours", value: 15, price: "Ksh 15", duration: "Short Session", speed: "3 Mbps", color: "from-green-500 to-emerald-600" },
     { label: "6 Hours", value: 20, price: "Ksh 20", duration: "Half Day", speed: "4 Mbps", color: "from-blue-500 to-cyan-600" },
     { label: "12 Hours", value: 25, price: "Ksh 25", duration: "Quick Access", speed: "5 Mbps", color: "from-pink-500 to-orange-600" },
     { label: "24 Hours", value: 30, price: "Ksh 30", duration: "Full Day", speed: "5 Mbps", color: "from-purple-500 to-indigo-600" },
-    { label: "2 Days", value: 50, price: "Ksh 50", duration: "Quick Access", speed: "6 Mbps", color: "from-black-500 to-grey-600" },
+    { label: "2 Days", value: 50, price: "Ksh 50", duration: "Quick Access", speed: "6 Mbps", color: "from-gray-700 to-gray-900" },
     { label: "3 Days", value: 80, price: "Ksh 80", duration: "Quick Access", speed: "6 Mbps", color: "from-purple-500 to-pink-600" },
     { label: "1 week", value: 200, price: "Ksh 200", duration: "Quick Access", speed: "6 Mbps", color: "from-yellow-500 to-green-600" },
-    { label: "2 weeks", value: 300, price: "Ksh 300", duration: "Quick Access", speed: "10 Mbps", color: "from-red-500 to-green-purple" },
-    { label: "1 month", value: 500, price: "Ksh 500", duration: "Quick Access", speed: "10 Mbps", color: "from-teal-500 to-brown-600" },
-    
-    
+    { label: "2 weeks", value: 300, price: "Ksh 300", duration: "Quick Access", speed: "10 Mbps", color: "from-red-500 to-purple-600" },
+    { label: "1 month", value: 500, price: "Ksh 500", duration: "Quick Access", speed: "10 Mbps", color: "from-teal-500 to-cyan-600" },
   ];
 
   useEffect(() => {
     fetchMacAddress();
+    fetchPackages();
   }, []);
+
+  const fetchPackages = async () => {
+    try {
+      setPackagesLoading(true);
+      const response = await axios.get(`${API_URL}/api/admin/packages/public`);
+      
+      if (response.data.success && response.data.packages?.length > 0) {
+        setPackages(response.data.packages);
+        console.log("✅ Packages loaded from API:", response.data.packages.length);
+      } else {
+        console.log("⚠️ No packages from API, using fallback");
+        setPackages(fallbackPackages);
+      }
+    } catch (error) {
+      console.error("❌ Error fetching packages:", error);
+      setPackages(fallbackPackages);
+    } finally {
+      setPackagesLoading(false);
+    }
+  };
 
   const fetchMacAddress = async () => {
     try {
@@ -188,21 +209,30 @@ const checkPaymentStatus = async (transactionId) => {
         <div className="p-6 space-y-5">
           <div className="space-y-2">
             <label className="block text-white mb-2 text-lg font-semibold">Select Your Package</label>
-            <div className="grid grid-cols-2 gap-4">
-              {packages.map((pkg) => (
-                <div 
-                  key={pkg.value} 
-                  className={`rounded-2xl p-4 cursor-pointer transition-all duration-300 border-2 shadow-xl bg-gradient-to-r ${pkg.color} hover:scale-105 hover:shadow-2xl border-transparent`}
-                  onClick={() => handlePackageSelect(pkg)}
-                >
-                  <div className="flex flex-col items-center p-3 rounded-lg bg-white/10">
-                    <div className="font-bold text-white text-lg">{pkg.label}</div>
-                    <div className="text-sm text-white/80 font-semibold mt-1">{pkg.price}</div>
-                    <div className="text-xs mt-1 text-white/70">{pkg.speed}</div>
+            
+            {packagesLoading ? (
+              <div className="grid grid-cols-2 gap-4">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="rounded-2xl p-4 bg-white/20 animate-pulse h-24"></div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                {packages.map((pkg) => (
+                  <div 
+                    key={pkg.id || pkg.value} 
+                    className={`rounded-2xl p-4 cursor-pointer transition-all duration-300 border-2 shadow-xl bg-gradient-to-r ${pkg.color} hover:scale-105 hover:shadow-2xl border-transparent`}
+                    onClick={() => handlePackageSelect(pkg)}
+                  >
+                    <div className="flex flex-col items-center p-3 rounded-lg bg-white/10">
+                      <div className="font-bold text-white text-lg">{pkg.label}</div>
+                      <div className="text-sm text-white/80 font-semibold mt-1">{pkg.price}</div>
+                      <div className="text-xs mt-1 text-white/70">{pkg.speed}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className={'flex items-center justify-center text-white text-sm mt-4'}>

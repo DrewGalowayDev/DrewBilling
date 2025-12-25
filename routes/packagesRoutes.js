@@ -1,31 +1,135 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../config/db');
+const { supabase } = require('../config/db');
 const { authMiddleware, roleMiddleware } = require('../middleware/advancedAuth');
 
-// Apply auth middleware to all routes
+// Color gradient options for the admin UI
+const COLOR_GRADIENTS = [
+    { value: 'from-yellow-500 to-orange-600', label: 'Yellow → Orange', preview: '#eab308 → #ea580c' },
+    { value: 'from-green-500 to-emerald-600', label: 'Green → Emerald', preview: '#22c55e → #059669' },
+    { value: 'from-blue-500 to-cyan-600', label: 'Blue → Cyan', preview: '#3b82f6 → #0891b2' },
+    { value: 'from-pink-500 to-orange-600', label: 'Pink → Orange', preview: '#ec4899 → #ea580c' },
+    { value: 'from-purple-500 to-indigo-600', label: 'Purple → Indigo', preview: '#a855f7 → #4f46e5' },
+    { value: 'from-gray-700 to-gray-900', label: 'Dark Gray', preview: '#374151 → #111827' },
+    { value: 'from-purple-500 to-pink-600', label: 'Purple → Pink', preview: '#a855f7 → #db2777' },
+    { value: 'from-yellow-500 to-green-600', label: 'Yellow → Green', preview: '#eab308 → #16a34a' },
+    { value: 'from-red-500 to-purple-600', label: 'Red → Purple', preview: '#ef4444 → #9333ea' },
+    { value: 'from-teal-500 to-cyan-600', label: 'Teal → Cyan', preview: '#14b8a6 → #0891b2' },
+    { value: 'from-orange-500 to-red-600', label: 'Orange → Red', preview: '#f97316 → #dc2626' },
+    { value: 'from-indigo-500 to-purple-600', label: 'Indigo → Purple', preview: '#6366f1 → #9333ea' },
+    { value: 'from-rose-500 to-pink-600', label: 'Rose → Pink', preview: '#f43f5e → #db2777' },
+    { value: 'from-amber-500 to-yellow-600', label: 'Amber → Yellow', preview: '#f59e0b → #ca8a04' },
+    { value: 'from-lime-500 to-green-600', label: 'Lime → Green', preview: '#84cc16 → #16a34a' },
+    { value: 'from-sky-500 to-blue-600', label: 'Sky → Blue', preview: '#0ea5e9 → #2563eb' },
+];
+
+// Duration label options
+const DURATION_LABELS = [
+    'Quick Access',
+    'Short Session',
+    'Half Day',
+    'Full Day',
+    'Extended',
+    'Weekend',
+    'Weekly',
+    'Monthly',
+    'Standard',
+    'Premium'
+];
+
+// ============================================
+// PUBLIC ROUTES (No Authentication Required)
+// ============================================
+
+// GET public packages for user portal
+router.get('/public', async (req, res) => {
+    try {
+        const { data: packages, error } = await supabase
+            .from('packages')
+            .select('id, name, amount, duration, duration_minutes, speed_limit, description, color_gradient, duration_label, display_order')
+            .eq('status', 'active')
+            .order('display_order', { ascending: true });
+
+        if (error) {
+            console.error('Database error:', error);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Failed to fetch packages' 
+            });
+        }
+
+        // Transform to match frontend expected format
+        const formattedPackages = packages.map(pkg => ({
+            id: pkg.id,
+            label: pkg.name,
+            value: parseFloat(pkg.amount),
+            price: `Ksh ${pkg.amount}`,
+            duration: pkg.duration_label || 'Standard',
+            speed: pkg.speed_limit ? `${pkg.speed_limit.replace('M', '')} Mbps` : '5 Mbps',
+            color: pkg.color_gradient || 'from-blue-500 to-indigo-600',
+            durationMinutes: pkg.duration_minutes,
+            description: pkg.description
+        }));
+
+        res.json({ 
+            success: true, 
+            packages: formattedPackages 
+        });
+    } catch (error) {
+        console.error('Error fetching public packages:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Failed to fetch packages',
+            error: error.message 
+        });
+    }
+});
+
+// GET color gradient options
+router.get('/color-options', (req, res) => {
+    res.json({
+        success: true,
+        colorGradients: COLOR_GRADIENTS,
+        durationLabels: DURATION_LABELS
+    });
+});
+
+// ============================================
+// PROTECTED ROUTES (Authentication Required)
+// ============================================
+
+// Apply auth middleware to routes below
 router.use(authMiddleware);
 
-// GET all packages
+// GET all packages (admin)
 router.get('/', async (req, res) => {
     try {
         const { status } = req.query;
         
-        let query = 'SELECT * FROM packages WHERE 1=1';
-        const params = [];
+        let query = supabase
+            .from('packages')
+            .select('*')
+            .order('display_order', { ascending: true });
         
         if (status && status !== 'all') {
-            query += ' AND status = ?';
-            params.push(status);
+            query = query.eq('status', status);
         }
-        
-        query += ' ORDER BY amount ASC';
-        
-        const [packages] = await db.query(query, params);
-        
+
+        const { data: packages, error } = await query;
+
+        if (error) {
+            console.error('Database error:', error);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Failed to fetch packages' 
+            });
+        }
+
         res.json({ 
             success: true, 
-            packages 
+            packages: packages || [],
+            colorGradients: COLOR_GRADIENTS,
+            durationLabels: DURATION_LABELS
         });
     } catch (error) {
         console.error('Error fetching packages:', error);
@@ -40,25 +144,37 @@ router.get('/', async (req, res) => {
 // GET package statistics
 router.get('/stats', async (req, res) => {
     try {
-        const query = `
-            SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
-                SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) as inactive,
-                (SELECT COUNT(*) FROM payments WHERE status = 'confirmed' AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)) as purchases_this_month,
-                (SELECT SUM(amount) FROM payments WHERE status = 'confirmed' AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)) as revenue_this_month
-            FROM packages
-        `;
-        
-        const [stats] = await db.query(query);
-        
+        // Get package counts
+        const { data: packages, error: pkgError } = await supabase
+            .from('packages')
+            .select('status');
+
+        if (pkgError) throw pkgError;
+
+        const total = packages?.length || 0;
+        const active = packages?.filter(p => p.status === 'active').length || 0;
+        const inactive = packages?.filter(p => p.status === 'inactive').length || 0;
+
+        // Get payment stats for last 30 days
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const { data: payments, error: payError } = await supabase
+            .from('payments')
+            .select('amount, status')
+            .eq('status', 'confirmed')
+            .gte('created_at', thirtyDaysAgo.toISOString());
+
+        const purchasesThisMonth = payments?.length || 0;
+        const revenueThisMonth = payments?.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0) || 0;
+
         res.json({
             success: true,
-            total: stats[0].total || 0,
-            active: stats[0].active || 0,
-            inactive: stats[0].inactive || 0,
-            purchasesThisMonth: stats[0].purchases_this_month || 0,
-            revenueThisMonth: parseFloat(stats[0].revenue_this_month) || 0
+            total,
+            active,
+            inactive,
+            purchasesThisMonth,
+            revenueThisMonth
         });
     } catch (error) {
         console.error('Error fetching package stats:', error);
@@ -73,36 +189,42 @@ router.get('/stats', async (req, res) => {
 // GET single package details
 router.get('/:id', async (req, res) => {
     try {
-        const [packages] = await db.query('SELECT * FROM packages WHERE id = ?', [req.params.id]);
-        
-        if (packages.length === 0) {
+        const { data: pkg, error } = await supabase
+            .from('packages')
+            .select('*')
+            .eq('id', req.params.id)
+            .single();
+
+        if (error || !pkg) {
             return res.status(404).json({ 
                 success: false, 
                 message: 'Package not found' 
             });
         }
-        
+
         // Get purchase statistics for this package
-        const [stats] = await db.query(
-            `SELECT 
-                COUNT(*) as total_purchases,
-                SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed_purchases,
-                SUM(CASE WHEN status = 'confirmed' THEN amount ELSE 0 END) as total_revenue
-            FROM payments 
-            WHERE amount = ?`,
-            [packages[0].amount]
-        );
-        
+        const { data: payments } = await supabase
+            .from('payments')
+            .select('status, amount')
+            .eq('amount', pkg.amount);
+
+        const totalPurchases = payments?.length || 0;
+        const confirmedPurchases = payments?.filter(p => p.status === 'confirmed').length || 0;
+        const totalRevenue = payments?.filter(p => p.status === 'confirmed')
+            .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0) || 0;
+
         const packageData = {
-            ...packages[0],
-            total_purchases: stats[0].total_purchases || 0,
-            confirmed_purchases: stats[0].confirmed_purchases || 0,
-            total_revenue: parseFloat(stats[0].total_revenue) || 0
+            ...pkg,
+            total_purchases: totalPurchases,
+            confirmed_purchases: confirmedPurchases,
+            total_revenue: totalRevenue
         };
-        
+
         res.json({ 
             success: true, 
-            package: packageData 
+            package: packageData,
+            colorGradients: COLOR_GRADIENTS,
+            durationLabels: DURATION_LABELS
         });
     } catch (error) {
         console.error('Error fetching package:', error);
@@ -115,44 +237,84 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST create new package
-router.post('/', roleMiddleware(['admin', 'super_admin']), async (req, res) => {
+router.post('/', roleMiddleware(['admin', 'super_admin', 'tenant_admin']), async (req, res) => {
     try {
-        const { name, amount, duration, duration_minutes, speed_limit, description, status } = req.body;
+        const { 
+            name, amount, duration, duration_minutes, speed_limit, 
+            description, status, color_gradient, duration_label, display_order 
+        } = req.body;
         
         // Validation
         if (!name || !amount || !duration || !duration_minutes || !speed_limit) {
             return res.status(400).json({ 
                 success: false, 
-                message: 'Missing required fields' 
+                message: 'Missing required fields: name, amount, duration, duration_minutes, speed_limit' 
             });
         }
-        
+
         // Check if package with same amount already exists
-        const [existing] = await db.query('SELECT id FROM packages WHERE amount = ?', [amount]);
-        if (existing.length > 0) {
+        const { data: existing } = await supabase
+            .from('packages')
+            .select('id')
+            .eq('amount', amount);
+
+        if (existing && existing.length > 0) {
             return res.status(400).json({ 
                 success: false, 
                 message: 'Package with this amount already exists' 
             });
         }
-        
-        const [result] = await db.query(
-            `INSERT INTO packages (name, amount, duration, duration_minutes, speed_limit, description, status, created_at, updated_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-            [name, amount, duration, duration_minutes, speed_limit, description || null, status || 'active']
-        );
-        
+
+        // Get max display_order
+        const { data: maxOrder } = await supabase
+            .from('packages')
+            .select('display_order')
+            .order('display_order', { ascending: false })
+            .limit(1);
+
+        const newDisplayOrder = display_order || ((maxOrder?.[0]?.display_order || 0) + 1);
+
+        const { data: newPkg, error } = await supabase
+            .from('packages')
+            .insert({
+                name,
+                amount,
+                duration,
+                duration_minutes,
+                speed_limit,
+                description: description || null,
+                status: status || 'active',
+                color_gradient: color_gradient || 'from-blue-500 to-indigo-600',
+                duration_label: duration_label || 'Standard',
+                display_order: newDisplayOrder,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Database error:', error);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Failed to create package' 
+            });
+        }
+
         // Log audit
-        await db.query(
-            `INSERT INTO audit_logs (admin_id, action, entity_type, entity_id, details, ip_address) 
-             VALUES (?, 'create_package', 'package', ?, ?, ?)`,
-            [req.user.id, result.insertId, `Created package: ${name} - Ksh ${amount}`, req.ip]
-        );
+        await supabase.from('audit_logs').insert({
+            admin_id: req.user.id,
+            action: 'create_package',
+            entity_type: 'package',
+            entity_id: newPkg.id,
+            details: `Created package: ${name} - Ksh ${amount}`,
+            ip_address: req.ip || req.connection?.remoteAddress
+        });
         
         res.json({ 
             success: true, 
             message: 'Package created successfully',
-            packageId: result.insertId
+            package: newPkg
         });
     } catch (error) {
         console.error('Error creating package:', error);
@@ -165,36 +327,68 @@ router.post('/', roleMiddleware(['admin', 'super_admin']), async (req, res) => {
 });
 
 // PUT update package
-router.put('/:id', roleMiddleware(['admin', 'super_admin']), async (req, res) => {
+router.put('/:id', roleMiddleware(['admin', 'super_admin', 'tenant_admin']), async (req, res) => {
     try {
-        const { name, amount, duration, duration_minutes, speed_limit, description, status } = req.body;
+        const { 
+            name, amount, duration, duration_minutes, speed_limit, 
+            description, status, color_gradient, duration_label, display_order 
+        } = req.body;
         
         // Check if package exists
-        const [existing] = await db.query('SELECT * FROM packages WHERE id = ?', [req.params.id]);
-        if (existing.length === 0) {
+        const { data: existing, error: fetchError } = await supabase
+            .from('packages')
+            .select('*')
+            .eq('id', req.params.id)
+            .single();
+
+        if (fetchError || !existing) {
             return res.status(404).json({ 
                 success: false, 
                 message: 'Package not found' 
             });
         }
-        
-        await db.query(
-            `UPDATE packages 
-             SET name = ?, amount = ?, duration = ?, duration_minutes = ?, speed_limit = ?, description = ?, status = ?, updated_at = NOW()
-             WHERE id = ?`,
-            [name, amount, duration, duration_minutes, speed_limit, description, status, req.params.id]
-        );
-        
+
+        const { data: updated, error } = await supabase
+            .from('packages')
+            .update({
+                name,
+                amount,
+                duration,
+                duration_minutes,
+                speed_limit,
+                description,
+                status,
+                color_gradient: color_gradient || existing.color_gradient,
+                duration_label: duration_label || existing.duration_label,
+                display_order: display_order || existing.display_order,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', req.params.id)
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Database error:', error);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Failed to update package' 
+            });
+        }
+
         // Log audit
-        await db.query(
-            `INSERT INTO audit_logs (admin_id, action, entity_type, entity_id, details, ip_address) 
-             VALUES (?, 'update_package', 'package', ?, ?, ?)`,
-            [req.user.id, req.params.id, `Updated package: ${name}`, req.ip]
-        );
-        
+        await supabase.from('audit_logs').insert({
+            admin_id: req.user.id,
+            action: 'update_package',
+            entity_type: 'package',
+            entity_id: req.params.id,
+            details: `Updated package: ${name}`,
+            ip_address: req.ip || req.connection?.remoteAddress
+        });
+
         res.json({ 
             success: true, 
-            message: 'Package updated successfully' 
+            message: 'Package updated successfully',
+            package: updated
         });
     } catch (error) {
         console.error('Error updating package:', error);
@@ -207,26 +401,45 @@ router.put('/:id', roleMiddleware(['admin', 'super_admin']), async (req, res) =>
 });
 
 // DELETE package
-router.delete('/:id', roleMiddleware(['super_admin']), async (req, res) => {
+router.delete('/:id', roleMiddleware(['super_admin', 'admin', 'tenant_admin']), async (req, res) => {
     try {
         // Check if package exists
-        const [existing] = await db.query('SELECT * FROM packages WHERE id = ?', [req.params.id]);
-        if (existing.length === 0) {
+        const { data: existing } = await supabase
+            .from('packages')
+            .select('*')
+            .eq('id', req.params.id)
+            .single();
+
+        if (!existing) {
             return res.status(404).json({ 
                 success: false, 
                 message: 'Package not found' 
             });
         }
-        
-        await db.query('DELETE FROM packages WHERE id = ?', [req.params.id]);
-        
+
+        const { error } = await supabase
+            .from('packages')
+            .delete()
+            .eq('id', req.params.id);
+
+        if (error) {
+            console.error('Database error:', error);
+            return res.status(500).json({ 
+                success: false, 
+                message: 'Failed to delete package' 
+            });
+        }
+
         // Log audit
-        await db.query(
-            `INSERT INTO audit_logs (admin_id, action, entity_type, entity_id, details, ip_address) 
-             VALUES (?, 'delete_package', 'package', ?, ?, ?)`,
-            [req.user.id, req.params.id, `Deleted package: ${existing[0].name}`, req.ip]
-        );
-        
+        await supabase.from('audit_logs').insert({
+            admin_id: req.user.id,
+            action: 'delete_package',
+            entity_type: 'package',
+            entity_id: req.params.id,
+            details: `Deleted package: ${existing.name}`,
+            ip_address: req.ip || req.connection?.remoteAddress
+        });
+
         res.json({ 
             success: true, 
             message: 'Package deleted successfully' 
@@ -242,35 +455,42 @@ router.delete('/:id', roleMiddleware(['super_admin']), async (req, res) => {
 });
 
 // POST initialize default packages
-router.post('/initialize', roleMiddleware(['super_admin']), async (req, res) => {
+router.post('/initialize', roleMiddleware(['super_admin', 'admin']), async (req, res) => {
     try {
         const defaultPackages = [
-            { name: '30 Minutes', amount: 1, duration: '30m', duration_minutes: 30, speed_limit: '2M', description: 'Quick browsing package' },
-            { name: '1 Hour', amount: 10, duration: '1h', duration_minutes: 60, speed_limit: '2M', description: 'Standard hourly package' },
-            { name: '3 Hours', amount: 15, duration: '3h', duration_minutes: 180, speed_limit: '3M', description: 'Extended browsing' },
-            { name: '6 Hours', amount: 20, duration: '6h', duration_minutes: 360, speed_limit: '4M', description: 'Half day package' },
-            { name: '12 Hours', amount: 25, duration: '12h', duration_minutes: 720, speed_limit: '5M', description: 'Half day with higher speed' },
-            { name: '24 Hours', amount: 30, duration: '24h', duration_minutes: 1440, speed_limit: '5M', description: 'Full day package' },
-            { name: '2 Days', amount: 50, duration: '48h', duration_minutes: 2880, speed_limit: '6M', description: 'Two day package' },
-            { name: '3 Days', amount: 80, duration: '72h', duration_minutes: 4320, speed_limit: '6M', description: 'Three day package' },
-            { name: '1 Week', amount: 200, duration: '168h', duration_minutes: 10080, speed_limit: '6M', description: 'Weekly package' },
-            { name: '2 Weeks', amount: 300, duration: '336h', duration_minutes: 20160, speed_limit: '10M', description: 'Bi-weekly package' },
-            { name: '1 Month', amount: 500, duration: '720h', duration_minutes: 43200, speed_limit: '10M', description: 'Monthly unlimited' }
+            { name: '30 Minutes', amount: 1, duration: '30m', duration_minutes: 30, speed_limit: '2M', description: 'Quick browsing package', color_gradient: 'from-yellow-500 to-orange-600', duration_label: 'Quick Access', display_order: 1 },
+            { name: '1 Hour', amount: 10, duration: '1h', duration_minutes: 60, speed_limit: '2M', description: 'Standard hourly package', color_gradient: 'from-yellow-500 to-orange-600', duration_label: 'Quick Access', display_order: 2 },
+            { name: '3 Hours', amount: 15, duration: '3h', duration_minutes: 180, speed_limit: '3M', description: 'Extended browsing', color_gradient: 'from-green-500 to-emerald-600', duration_label: 'Short Session', display_order: 3 },
+            { name: '6 Hours', amount: 20, duration: '6h', duration_minutes: 360, speed_limit: '4M', description: 'Half day package', color_gradient: 'from-blue-500 to-cyan-600', duration_label: 'Half Day', display_order: 4 },
+            { name: '12 Hours', amount: 25, duration: '12h', duration_minutes: 720, speed_limit: '5M', description: 'Half day with higher speed', color_gradient: 'from-pink-500 to-orange-600', duration_label: 'Quick Access', display_order: 5 },
+            { name: '24 Hours', amount: 30, duration: '24h', duration_minutes: 1440, speed_limit: '5M', description: 'Full day package', color_gradient: 'from-purple-500 to-indigo-600', duration_label: 'Full Day', display_order: 6 },
+            { name: '2 Days', amount: 50, duration: '48h', duration_minutes: 2880, speed_limit: '6M', description: 'Two day package', color_gradient: 'from-gray-700 to-gray-900', duration_label: 'Quick Access', display_order: 7 },
+            { name: '3 Days', amount: 80, duration: '72h', duration_minutes: 4320, speed_limit: '6M', description: 'Three day package', color_gradient: 'from-purple-500 to-pink-600', duration_label: 'Quick Access', display_order: 8 },
+            { name: '1 Week', amount: 200, duration: '168h', duration_minutes: 10080, speed_limit: '6M', description: 'Weekly package', color_gradient: 'from-yellow-500 to-green-600', duration_label: 'Quick Access', display_order: 9 },
+            { name: '2 Weeks', amount: 300, duration: '336h', duration_minutes: 20160, speed_limit: '10M', description: 'Bi-weekly package', color_gradient: 'from-red-500 to-purple-600', duration_label: 'Quick Access', display_order: 10 },
+            { name: '1 Month', amount: 500, duration: '720h', duration_minutes: 43200, speed_limit: '10M', description: 'Monthly unlimited', color_gradient: 'from-teal-500 to-cyan-600', duration_label: 'Quick Access', display_order: 11 }
         ];
         
         let inserted = 0;
         for (const pkg of defaultPackages) {
-            try {
-                await db.query(
-                    `INSERT INTO packages (name, amount, duration, duration_minutes, speed_limit, description, status, created_at, updated_at) 
-                     VALUES (?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`,
-                    [pkg.name, pkg.amount, pkg.duration, pkg.duration_minutes, pkg.speed_limit, pkg.description]
-                );
-                inserted++;
-            } catch (err) {
-                // Skip if already exists
-                if (err.code !== 'ER_DUP_ENTRY') {
-                    console.error('Error inserting package:', err);
+            // Check if package with same amount exists
+            const { data: existing } = await supabase
+                .from('packages')
+                .select('id')
+                .eq('amount', pkg.amount);
+
+            if (!existing || existing.length === 0) {
+                const { error } = await supabase
+                    .from('packages')
+                    .insert({
+                        ...pkg,
+                        status: 'active',
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    });
+
+                if (!error) {
+                    inserted++;
                 }
             }
         }
@@ -285,6 +505,39 @@ router.post('/initialize', roleMiddleware(['super_admin']), async (req, res) => 
             success: false, 
             message: 'Failed to initialize packages',
             error: error.message 
+        });
+    }
+});
+
+// PUT update display order (bulk)
+router.put('/reorder/bulk', roleMiddleware(['admin', 'super_admin', 'tenant_admin']), async (req, res) => {
+    try {
+        const { packages } = req.body;
+
+        if (!packages || !Array.isArray(packages)) {
+            return res.status(400).json({
+                success: false,
+                message: 'packages array is required'
+            });
+        }
+
+        for (const pkg of packages) {
+            await supabase
+                .from('packages')
+                .update({ display_order: pkg.display_order })
+                .eq('id', pkg.id);
+        }
+
+        res.json({
+            success: true,
+            message: 'Package order updated successfully'
+        });
+    } catch (error) {
+        console.error('Error reordering packages:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to reorder packages',
+            error: error.message
         });
     }
 });
