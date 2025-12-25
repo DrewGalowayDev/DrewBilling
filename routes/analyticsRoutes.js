@@ -1,104 +1,111 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../config/db');
+const { supabase } = require('../config/db');
 const { authMiddleware } = require('../middleware/advancedAuth');
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
 
+// Helper function to get date filter
+const getDateRange = (period) => {
+    const now = new Date();
+    let days;
+    switch (period) {
+        case '7d': days = 7; break;
+        case '30d': days = 30; break;
+        case '90d': days = 90; break;
+        case 'year': days = 365; break;
+        default: days = 30;
+    }
+    const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    return startDate.toISOString();
+};
+
 // GET comprehensive dashboard analytics
 router.get('/dashboard', async (req, res) => {
     try {
         const { period = '30d' } = req.query;
+        const startDate = getDateRange(period);
         
-        let dateFilter;
-        switch (period) {
-            case '7d':
-                dateFilter = 'DATE_SUB(NOW(), INTERVAL 7 DAY)';
-                break;
-            case '30d':
-                dateFilter = 'DATE_SUB(NOW(), INTERVAL 30 DAY)';
-                break;
-            case '90d':
-                dateFilter = 'DATE_SUB(NOW(), INTERVAL 90 DAY)';
-                break;
-            case 'year':
-                dateFilter = 'DATE_SUB(NOW(), INTERVAL 1 YEAR)';
-                break;
-            default:
-                dateFilter = 'DATE_SUB(NOW(), INTERVAL 30 DAY)';
-        }
-        
+        // Fetch all payments in period
+        const { data: payments, error: payError } = await supabase
+            .from('payments')
+            .select('amount, status, phone, created_at')
+            .gte('created_at', startDate);
+
+        if (payError) throw payError;
+
         // Revenue analytics
-        const [revenue] = await db.query(`
-            SELECT 
-                COUNT(*) as total_transactions,
-                SUM(CASE WHEN status = 'confirmed' THEN amount ELSE 0 END) as total_revenue,
-                AVG(CASE WHEN status = 'confirmed' THEN amount ELSE NULL END) as avg_transaction,
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_transactions,
-                SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as successful_transactions
-            FROM payments
-            WHERE created_at >= ${dateFilter}
-        `);
-        
+        const totalTransactions = payments?.length || 0;
+        const confirmedPayments = payments?.filter(p => p.status === 'confirmed') || [];
+        const totalRevenue = confirmedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+        const avgTransaction = confirmedPayments.length > 0 ? totalRevenue / confirmedPayments.length : 0;
+        const failedTransactions = payments?.filter(p => p.status === 'failed').length || 0;
+        const successfulTransactions = confirmedPayments.length;
+
         // Customer analytics
-        const [customers] = await db.query(`
-            SELECT 
-                COUNT(DISTINCT phone) as total_customers,
-                COUNT(DISTINCT CASE WHEN created_at >= ${dateFilter} THEN phone END) as new_customers,
-                AVG(purchase_count) as avg_purchases_per_customer
-            FROM (
-                SELECT phone, COUNT(*) as purchase_count
-                FROM payments
-                WHERE status = 'confirmed'
-                GROUP BY phone
-            ) as customer_stats
-        `);
+        const uniquePhones = new Set(confirmedPayments.map(p => p.phone));
+        const totalCustomers = uniquePhones.size;
         
         // Device analytics
-        const [devices] = await db.query(`
-            SELECT 
-                COUNT(*) as total_devices,
-                SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_devices,
-                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_devices,
-                SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocked_devices
-            FROM devices
-        `);
+        const { data: devices, error: devError } = await supabase
+            .from('devices')
+            .select('status');
+
+        const deviceStats = {
+            total_devices: devices?.length || 0,
+            active_devices: devices?.filter(d => d.status === 'active').length || 0,
+            pending_devices: devices?.filter(d => d.status === 'pending').length || 0,
+            blocked_devices: devices?.filter(d => d.status === 'blocked').length || 0
+        };
         
         // Session analytics
-        const [sessions] = await db.query(`
-            SELECT 
-                COUNT(*) as total_sessions,
-                SUM(CASE WHEN status = 'active' AND session_end > NOW() THEN 1 ELSE 0 END) as active_sessions,
-                AVG(duration_minutes) as avg_session_duration,
-                SUM(duration_minutes) as total_session_minutes
-            FROM sessions
-            WHERE session_start >= ${dateFilter}
-        `);
-        
+        const { data: sessions, error: sessError } = await supabase
+            .from('sessions')
+            .select('status, duration_minutes, session_start, session_end')
+            .gte('session_start', startDate);
+
+        const activeSessions = sessions?.filter(s => s.status === 'active').length || 0;
+        const totalSessionMinutes = sessions?.reduce((sum, s) => sum + parseFloat(s.duration_minutes || 0), 0) || 0;
+        const avgSessionDuration = sessions?.length > 0 ? totalSessionMinutes / sessions.length : 0;
+
         // Package popularity
-        const [packages] = await db.query(`
-            SELECT 
-                p.amount,
-                p.time_purchased as package_name,
-                COUNT(*) as purchase_count,
-                SUM(p.amount) as revenue
-            FROM payments p
-            WHERE p.status = 'confirmed'
-            AND p.created_at >= ${dateFilter}
-            GROUP BY p.amount, p.time_purchased
-            ORDER BY purchase_count DESC
-            LIMIT 5
-        `);
-        
+        const packageCounts = {};
+        confirmedPayments.forEach(p => {
+            const amount = parseFloat(p.amount);
+            if (!packageCounts[amount]) {
+                packageCounts[amount] = { amount, purchase_count: 0, revenue: 0 };
+            }
+            packageCounts[amount].purchase_count++;
+            packageCounts[amount].revenue += amount;
+        });
+
+        const topPackages = Object.values(packageCounts)
+            .sort((a, b) => b.purchase_count - a.purchase_count)
+            .slice(0, 5);
+
         res.json({
             success: true,
             period,
-            revenue: revenue[0],
-            customers: customers[0],
-            devices: devices[0],
-            sessions: sessions[0],
-            topPackages: packages
+            revenue: {
+                total_transactions: totalTransactions,
+                total_revenue: totalRevenue,
+                avg_transaction: avgTransaction,
+                failed_transactions: failedTransactions,
+                successful_transactions: successfulTransactions
+            },
+            customers: {
+                total_customers: totalCustomers,
+                new_customers: totalCustomers
+            },
+            devices: deviceStats,
+            sessions: {
+                total_sessions: sessions?.length || 0,
+                active_sessions: activeSessions,
+                avg_session_duration: avgSessionDuration,
+                total_session_minutes: totalSessionMinutes
+            },
+            topPackages
         });
     } catch (error) {
         console.error('Error fetching dashboard analytics:', error);
@@ -113,43 +120,34 @@ router.get('/dashboard', async (req, res) => {
 // GET revenue trends over time
 router.get('/revenue/trends', async (req, res) => {
     try {
-        const { period = '30d', groupBy = 'day' } = req.query;
+        const { period = '30d' } = req.query;
+        const startDate = getDateRange(period);
         
-        let dateFilter, dateFormat;
-        switch (period) {
-            case '7d':
-                dateFilter = 'INTERVAL 7 DAY';
-                dateFormat = '%Y-%m-%d';
-                break;
-            case '30d':
-                dateFilter = 'INTERVAL 30 DAY';
-                dateFormat = '%Y-%m-%d';
-                break;
-            case '90d':
-                dateFilter = 'INTERVAL 90 DAY';
-                dateFormat = groupBy === 'week' ? '%Y-%u' : '%Y-%m-%d';
-                break;
-            case 'year':
-                dateFilter = 'INTERVAL 1 YEAR';
-                dateFormat = '%Y-%m';
-                break;
-            default:
-                dateFilter = 'INTERVAL 30 DAY';
-                dateFormat = '%Y-%m-%d';
-        }
-        
-        const [trends] = await db.query(`
-            SELECT 
-                DATE_FORMAT(created_at, '${dateFormat}') as period,
-                COUNT(*) as transactions,
-                SUM(CASE WHEN status = 'confirmed' THEN amount ELSE 0 END) as revenue,
-                SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as successful,
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-            FROM payments
-            WHERE created_at >= DATE_SUB(NOW(), ${dateFilter})
-            GROUP BY DATE_FORMAT(created_at, '${dateFormat}')
-            ORDER BY period ASC
-        `);
+        const { data: payments, error } = await supabase
+            .from('payments')
+            .select('amount, status, created_at')
+            .gte('created_at', startDate)
+            .order('created_at', { ascending: true });
+
+        if (error) throw error;
+
+        // Group by date
+        const groupedData = {};
+        (payments || []).forEach(p => {
+            const date = p.created_at?.split('T')[0];
+            if (!groupedData[date]) {
+                groupedData[date] = { period: date, transactions: 0, revenue: 0, successful: 0, failed: 0 };
+            }
+            groupedData[date].transactions++;
+            if (p.status === 'confirmed') {
+                groupedData[date].revenue += parseFloat(p.amount || 0);
+                groupedData[date].successful++;
+            } else if (p.status === 'failed') {
+                groupedData[date].failed++;
+            }
+        });
+
+        const trends = Object.values(groupedData).sort((a, b) => a.period.localeCompare(b.period));
         
         res.json({
             success: true,
@@ -168,60 +166,80 @@ router.get('/revenue/trends', async (req, res) => {
 // GET customer behavior analytics
 router.get('/customers/behavior', async (req, res) => {
     try {
-        // Customer segmentation by spending
-        const [segments] = await db.query(`
-            SELECT 
-                CASE 
-                    WHEN total_spent < 50 THEN 'Low Spender'
-                    WHEN total_spent BETWEEN 50 AND 200 THEN 'Medium Spender'
-                    WHEN total_spent BETWEEN 201 AND 500 THEN 'High Spender'
-                    ELSE 'VIP'
-                END as segment,
-                COUNT(*) as customer_count,
-                AVG(total_spent) as avg_spent,
-                AVG(purchase_count) as avg_purchases
-            FROM (
-                SELECT 
-                    phone,
-                    SUM(CASE WHEN status = 'confirmed' THEN amount ELSE 0 END) as total_spent,
-                    COUNT(*) as purchase_count
-                FROM payments
-                GROUP BY phone
-            ) as customer_stats
-            GROUP BY segment
-        `);
+        const thirtyDaysAgo = getDateRange('30d');
         
-        // Retention analysis
-        const [retention] = await db.query(`
-            SELECT 
-                COUNT(DISTINCT CASE WHEN purchase_count = 1 THEN phone END) as one_time,
-                COUNT(DISTINCT CASE WHEN purchase_count BETWEEN 2 AND 5 THEN phone END) as occasional,
-                COUNT(DISTINCT CASE WHEN purchase_count BETWEEN 6 AND 10 THEN phone END) as regular,
-                COUNT(DISTINCT CASE WHEN purchase_count > 10 THEN phone END) as loyal
-            FROM (
-                SELECT phone, COUNT(*) as purchase_count
-                FROM payments
-                WHERE status = 'confirmed'
-                GROUP BY phone
-            ) as customer_frequency
-        `);
-        
-        // Peak hours analysis
-        const [peakHours] = await db.query(`
-            SELECT 
-                HOUR(created_at) as hour,
-                COUNT(*) as transaction_count,
-                SUM(CASE WHEN status = 'confirmed' THEN amount ELSE 0 END) as revenue
-            FROM payments
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-            GROUP BY HOUR(created_at)
-            ORDER BY hour ASC
-        `);
+        const { data: payments, error } = await supabase
+            .from('payments')
+            .select('phone, amount, status, created_at');
+
+        if (error) throw error;
+
+        // Calculate customer spending
+        const customerStats = {};
+        (payments || []).filter(p => p.status === 'confirmed').forEach(p => {
+            if (!customerStats[p.phone]) {
+                customerStats[p.phone] = { total_spent: 0, purchase_count: 0 };
+            }
+            customerStats[p.phone].total_spent += parseFloat(p.amount || 0);
+            customerStats[p.phone].purchase_count++;
+        });
+
+        // Segment customers
+        const segments = {
+            'Low Spender': { customer_count: 0, total_spent: 0, total_purchases: 0 },
+            'Medium Spender': { customer_count: 0, total_spent: 0, total_purchases: 0 },
+            'High Spender': { customer_count: 0, total_spent: 0, total_purchases: 0 },
+            'VIP': { customer_count: 0, total_spent: 0, total_purchases: 0 }
+        };
+
+        const retention = { one_time: 0, occasional: 0, regular: 0, loyal: 0 };
+
+        Object.values(customerStats).forEach(stats => {
+            let segment;
+            if (stats.total_spent < 50) segment = 'Low Spender';
+            else if (stats.total_spent <= 200) segment = 'Medium Spender';
+            else if (stats.total_spent <= 500) segment = 'High Spender';
+            else segment = 'VIP';
+
+            segments[segment].customer_count++;
+            segments[segment].total_spent += stats.total_spent;
+            segments[segment].total_purchases += stats.purchase_count;
+
+            // Retention
+            if (stats.purchase_count === 1) retention.one_time++;
+            else if (stats.purchase_count <= 5) retention.occasional++;
+            else if (stats.purchase_count <= 10) retention.regular++;
+            else retention.loyal++;
+        });
+
+        const segmentArray = Object.entries(segments).map(([name, data]) => ({
+            segment: name,
+            customer_count: data.customer_count,
+            avg_spent: data.customer_count > 0 ? data.total_spent / data.customer_count : 0,
+            avg_purchases: data.customer_count > 0 ? data.total_purchases / data.customer_count : 0
+        }));
+
+        // Peak hours
+        const hourlyStats = {};
+        for (let i = 0; i < 24; i++) {
+            hourlyStats[i] = { hour: i, transaction_count: 0, revenue: 0 };
+        }
+
+        (payments || []).filter(p => p.created_at && new Date(p.created_at) >= new Date(thirtyDaysAgo))
+            .forEach(p => {
+                const hour = new Date(p.created_at).getHours();
+                hourlyStats[hour].transaction_count++;
+                if (p.status === 'confirmed') {
+                    hourlyStats[hour].revenue += parseFloat(p.amount || 0);
+                }
+            });
+
+        const peakHours = Object.values(hourlyStats);
         
         res.json({
             success: true,
-            segments,
-            retention: retention[0],
+            segments: segmentArray,
+            retention,
             peakHours
         });
     } catch (error) {
@@ -237,45 +255,53 @@ router.get('/customers/behavior', async (req, res) => {
 // GET device analytics
 router.get('/devices/stats', async (req, res) => {
     try {
+        const thirtyDaysAgo = getDateRange('30d');
+        
         // Device status distribution
-        const [statusDist] = await db.query(`
-            SELECT 
-                status,
-                COUNT(*) as count
-            FROM devices
-            GROUP BY status
-        `);
-        
-        // Most active devices
-        const [topDevices] = await db.query(`
-            SELECT 
-                d.mac_address,
-                d.phone,
-                COUNT(s.id) as session_count,
-                SUM(CASE WHEN p.status = 'confirmed' THEN p.amount ELSE 0 END) as total_spent,
-                MAX(d.last_seen) as last_seen
-            FROM devices d
-            LEFT JOIN sessions s ON d.id = s.device_id
-            LEFT JOIN payments p ON s.payment_id = p.id
-            GROUP BY d.id, d.mac_address, d.phone
-            ORDER BY session_count DESC
-            LIMIT 10
-        `);
-        
-        // Device registration trends
-        const [registrationTrend] = await db.query(`
-            SELECT 
-                DATE(created_at) as date,
-                COUNT(*) as new_devices
-            FROM devices
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-            GROUP BY DATE(created_at)
-            ORDER BY date ASC
-        `);
+        const { data: devices, error: devError } = await supabase
+            .from('devices')
+            .select('id, mac_address, phone, status, created_at, last_seen');
+
+        if (devError) throw devError;
+
+        const statusDist = {};
+        (devices || []).forEach(d => {
+            if (!statusDist[d.status]) statusDist[d.status] = 0;
+            statusDist[d.status]++;
+        });
+
+        const statusDistribution = Object.entries(statusDist).map(([status, count]) => ({
+            status,
+            count
+        }));
+
+        // Registration trends
+        const registrationCounts = {};
+        (devices || []).filter(d => d.created_at && new Date(d.created_at) >= new Date(thirtyDaysAgo))
+            .forEach(d => {
+                const date = d.created_at.split('T')[0];
+                if (!registrationCounts[date]) registrationCounts[date] = 0;
+                registrationCounts[date]++;
+            });
+
+        const registrationTrend = Object.entries(registrationCounts)
+            .map(([date, new_devices]) => ({ date, new_devices }))
+            .sort((a, b) => a.date.localeCompare(b.date));
+
+        // Top devices (simplified - just by last seen)
+        const topDevices = (devices || [])
+            .filter(d => d.status === 'active')
+            .sort((a, b) => (b.last_seen || '').localeCompare(a.last_seen || ''))
+            .slice(0, 10)
+            .map(d => ({
+                mac_address: d.mac_address,
+                phone: d.phone,
+                last_seen: d.last_seen
+            }));
         
         res.json({
             success: true,
-            statusDistribution: statusDist,
+            statusDistribution,
             topDevices,
             registrationTrend
         });
@@ -292,39 +318,62 @@ router.get('/devices/stats', async (req, res) => {
 // GET session analytics
 router.get('/sessions/stats', async (req, res) => {
     try {
-        // Session duration distribution
-        const [durationDist] = await db.query(`
-            SELECT 
-                CASE 
-                    WHEN duration_minutes < 60 THEN '< 1 hour'
-                    WHEN duration_minutes BETWEEN 60 AND 360 THEN '1-6 hours'
-                    WHEN duration_minutes BETWEEN 361 AND 1440 THEN '6-24 hours'
-                    WHEN duration_minutes BETWEEN 1441 AND 10080 THEN '1-7 days'
-                    ELSE '> 7 days'
-                END as duration_range,
-                COUNT(*) as count,
-                AVG(duration_minutes) as avg_duration
-            FROM sessions
-            GROUP BY duration_range
-            ORDER BY avg_duration ASC
-        `);
+        const thirtyDaysAgo = getDateRange('30d');
         
-        // Session status over time
-        const [statusTrend] = await db.query(`
-            SELECT 
-                DATE(session_start) as date,
-                SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
-                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-                SUM(CASE WHEN status = 'terminated' THEN 1 ELSE 0 END) as terminated
-            FROM sessions
-            WHERE session_start >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-            GROUP BY DATE(session_start)
-            ORDER BY date ASC
-        `);
+        const { data: sessions, error } = await supabase
+            .from('sessions')
+            .select('id, status, duration_minutes, session_start, session_end')
+            .gte('session_start', thirtyDaysAgo);
+
+        if (error) throw error;
+
+        // Duration distribution
+        const durationRanges = {
+            '< 1 hour': { count: 0, total: 0 },
+            '1-6 hours': { count: 0, total: 0 },
+            '6-24 hours': { count: 0, total: 0 },
+            '1-7 days': { count: 0, total: 0 },
+            '> 7 days': { count: 0, total: 0 }
+        };
+
+        (sessions || []).forEach(s => {
+            const mins = parseFloat(s.duration_minutes || 0);
+            let range;
+            if (mins < 60) range = '< 1 hour';
+            else if (mins <= 360) range = '1-6 hours';
+            else if (mins <= 1440) range = '6-24 hours';
+            else if (mins <= 10080) range = '1-7 days';
+            else range = '> 7 days';
+
+            durationRanges[range].count++;
+            durationRanges[range].total += mins;
+        });
+
+        const durationDistribution = Object.entries(durationRanges).map(([range, data]) => ({
+            duration_range: range,
+            count: data.count,
+            avg_duration: data.count > 0 ? data.total / data.count : 0
+        }));
+
+        // Status trend by date
+        const statusByDate = {};
+        (sessions || []).forEach(s => {
+            const date = s.session_start?.split('T')[0];
+            if (date) {
+                if (!statusByDate[date]) {
+                    statusByDate[date] = { date, active: 0, completed: 0, terminated: 0 };
+                }
+                if (s.status === 'active') statusByDate[date].active++;
+                else if (s.status === 'completed') statusByDate[date].completed++;
+                else if (s.status === 'terminated') statusByDate[date].terminated++;
+            }
+        });
+
+        const statusTrend = Object.values(statusByDate).sort((a, b) => a.date.localeCompare(b.date));
         
         res.json({
             success: true,
-            durationDistribution: durationDist,
+            durationDistribution,
             statusTrend
         });
     } catch (error) {
@@ -340,43 +389,58 @@ router.get('/sessions/stats', async (req, res) => {
 // GET performance metrics
 router.get('/performance', async (req, res) => {
     try {
-        // Payment success rate
-        const [paymentMetrics] = await db.query(`
-            SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as successful,
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
-                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-                (SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) / COUNT(*) * 100) as success_rate
-            FROM payments
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-        `);
+        const thirtyDaysAgo = getDateRange('30d');
         
-        // Average response time (simulated based on payment processing)
-        const [avgResponseTime] = await db.query(`
-            SELECT 
-                AVG(TIMESTAMPDIFF(SECOND, created_at, confirmed_at)) as avg_confirmation_time
-            FROM payments
-            WHERE status = 'confirmed'
-            AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-            AND confirmed_at IS NOT NULL
-        `);
-        
-        // System uptime (active sessions)
-        const [uptime] = await db.query(`
-            SELECT 
-                COUNT(DISTINCT DATE(session_start)) as active_days,
-                COUNT(*) as total_sessions,
-                SUM(duration_minutes) as total_uptime_minutes
-            FROM sessions
-            WHERE session_start >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-        `);
+        const { data: payments, error: payError } = await supabase
+            .from('payments')
+            .select('status, amount, created_at, confirmed_at')
+            .gte('created_at', thirtyDaysAgo);
+
+        if (payError) throw payError;
+
+        const total = payments?.length || 0;
+        const successful = payments?.filter(p => p.status === 'confirmed').length || 0;
+        const failed = payments?.filter(p => p.status === 'failed').length || 0;
+        const pending = payments?.filter(p => p.status === 'pending').length || 0;
+        const successRate = total > 0 ? (successful / total * 100) : 0;
+
+        // Calculate average confirmation time (if confirmed_at exists)
+        const confirmedWithTime = payments?.filter(p => p.status === 'confirmed' && p.confirmed_at && p.created_at) || [];
+        let avgConfirmationTime = 0;
+        if (confirmedWithTime.length > 0) {
+            const totalTime = confirmedWithTime.reduce((sum, p) => {
+                const created = new Date(p.created_at).getTime();
+                const confirmed = new Date(p.confirmed_at).getTime();
+                return sum + (confirmed - created) / 1000; // seconds
+            }, 0);
+            avgConfirmationTime = totalTime / confirmedWithTime.length;
+        }
+
+        // Session uptime
+        const { data: sessions, error: sessError } = await supabase
+            .from('sessions')
+            .select('session_start, duration_minutes')
+            .gte('session_start', thirtyDaysAgo);
+
+        const activeDays = new Set((sessions || []).map(s => s.session_start?.split('T')[0])).size;
+        const totalSessions = sessions?.length || 0;
+        const totalUptimeMinutes = sessions?.reduce((sum, s) => sum + parseFloat(s.duration_minutes || 0), 0) || 0;
         
         res.json({
             success: true,
-            paymentMetrics: paymentMetrics[0],
-            avgResponseTime: avgResponseTime[0].avg_confirmation_time || 0,
-            uptime: uptime[0]
+            paymentMetrics: {
+                total,
+                successful,
+                failed,
+                pending,
+                success_rate: successRate
+            },
+            avgResponseTime: avgConfirmationTime,
+            uptime: {
+                active_days: activeDays,
+                total_sessions: totalSessions,
+                total_uptime_minutes: totalUptimeMinutes
+            }
         });
     } catch (error) {
         console.error('Error fetching performance metrics:', error);

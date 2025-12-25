@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const db = require('../config/db');
+const { supabase } = require('../config/db');
 
 // Middleware to verify JWT token
 const authMiddleware = async (req, res, next) => {
@@ -19,17 +19,25 @@ const authMiddleware = async (req, res, next) => {
         // Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
-        // Check if admin exists and is active
-        const [admins] = await db.query(
-            'SELECT id, username, email, role, is_active FROM admins WHERE id = ? AND is_active = TRUE',
-            [decoded.id]
-        );
+        // Check if admin exists and is active using Supabase
+        const { data: admins, error } = await supabase
+            .from('admins')
+            .select('id, username, email, role, is_active')
+            .eq('id', decoded.id)
+            .eq('is_active', true);
 
-        if (admins.length === 0) {
+        if (error) {
+            console.error('Database error in auth:', error);
+            return res.status(500).json({ error: 'Database error' });
+        }
+
+        if (!admins || admins.length === 0) {
             return res.status(401).json({ error: 'Invalid token or user not active' });
         }
 
+        // Set both req.admin and req.user for compatibility
         req.admin = admins[0];
+        req.user = admins[0];
         next();
     } catch (error) {
         // Don't log expected auth errors in production
@@ -76,19 +84,16 @@ const auditMiddleware = (action, table) => {
                     query: req.query
                 };
 
-                db.query(
-                    `INSERT INTO audit_logs (admin_id, action, table_affected, record_id, details, ip_address, user_agent) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        req.admin?.id,
-                        action,
-                        table,
-                        req.params.id || null,
-                        JSON.stringify(details),
-                        req.ip || req.connection.remoteAddress,
-                        req.get('user-agent')
-                    ]
-                ).catch(err => console.error('Audit log error:', err));
+                // Use Supabase for audit logging
+                supabase.from('audit_logs').insert({
+                    admin_id: req.admin?.id || req.user?.id,
+                    action: action,
+                    table_affected: table,
+                    record_id: req.params.id || null,
+                    details: JSON.stringify(details),
+                    ip_address: req.ip || req.connection?.remoteAddress,
+                    user_agent: req.get('user-agent')
+                }).then(() => {}).catch(err => console.error('Audit log error:', err));
             }
 
             originalSend.call(this, data);
