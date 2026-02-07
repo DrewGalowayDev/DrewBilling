@@ -27,8 +27,6 @@ Router Integration: MikroTik (MAC Address Whitelisting)
 
 1️⃣ Clone the Repository
 
-git clone https://github.com/Nigiddy/Mpesa_Based-WiFi-Billing-System.git
-
 
 `cd Mpesa_Based-WiFi-Billing-System`
 
