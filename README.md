@@ -84,17 +84,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 For inquiries & support, reach out via:
 
-📧 Email: gideonpapa9@gmail.com
+📧 Email: drewskysoftwares@gmail.com
 
-📱 WhatsApp: https://wa.me/254756521055
+📱 WhatsApp: https://wa.me/254706576238
 
 
 
- "5NXqaqMDHAFKSY3dzIrCkAUkHG7Gsm7KZYTJzgJkxonUjFMg",//mpesa consumer secret
-    "0q3LjwkcANzeePsAdCSwobr3xZAlfkOEovCcFdfaOsIgfqhVkUJ4eJ23G9UgNruv",//mpesa consumer key
-    "600999",//mpesa shortcode
-    "bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919",//mpesa passkey
-    "https://mydomain.com/drewgallowaydev"//mpesa call_backurl
 
     
     
